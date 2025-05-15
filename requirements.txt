@@ -1,0 +1,18 @@
+# Web and HTTP
+requests>=2.25.1
+
+# Browser Automation
+selenium>=4.1.0
+webdriver-manager>=3.5.2
+
+# GUI Framework
+PyQt5>=5.15.4
+
+# System Utilities
+psutil>=5.8.0
+
+# Date and Time
+python-dateutil>=2.8.2
+
+# Concurrent Processing
+futures>=3.1.1; python_version < '3.2'
