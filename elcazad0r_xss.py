@@ -732,7 +732,7 @@ class XSSScannerThread(QThread):
 class XSSScannerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("XploitiX XSS Scanner")
+        self.setWindowTitle("elcazad0r XSS Scanner")
         self.setGeometry(100, 100, 1200, 800)
         self.setMinimumSize(1000, 700)
         
@@ -1900,7 +1900,7 @@ class XSSScannerGUI(QMainWindow):
     def show_about(self):
         """Show the about dialog"""
         about_text = """
-        <h2>XploitiX XSS Scanner</h2>
+        <h2>elcazad0r XSS Scanner</h2>
         <p>A powerful XSS vulnerability scanner with advanced detection capabilities.</p>
         <p>Features:</p>
         <ul>
@@ -1913,7 +1913,7 @@ class XSSScannerGUI(QMainWindow):
         </ul>
         <p>Version: 1.0</p>
         """
-        QMessageBox.about(self, "About XploitiX", about_text)
+        QMessageBox.about(self, "About elcazad0r", about_text)
         
     def generate_html_report(self):
         """Generate a professional HTML report with interactive features"""
@@ -2289,7 +2289,7 @@ class XSSScannerGUI(QMainWindow):
     def show_scan_completion_popup(self, confirmed_count, potential_count):
         """Show a popup with scan completion summary"""
         msg_box = QMessageBox()
-        msg_box.setWindowTitle("XploitiX Scan Complete")
+        msg_box.setWindowTitle("elcazad0r Scan Complete")
         
         # Set icon based on results
         if confirmed_count > 0:
@@ -2599,7 +2599,7 @@ class XSSScannerGUI(QMainWindow):
     def export_visualization(self):
         """Export the current visualization as an image"""
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Visualization", 
-                                                 f"xploitix_visualization_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png", 
+                                                 f"elcazad0r_visualization_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png", 
                                                  "PNG Files (*.png)")
         
         if not file_path:
