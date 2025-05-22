@@ -1881,7 +1881,7 @@ class XSSScannerGUI(QMainWindow):
                 self.errors_list.addItem("Telegram notification failed: Missing token or chat ID")
                 return
                 
-            message = f"🚨 XSS VULNERABILITY DETECTED 🚨\n\nType: {vuln_type}\nURL: {url}\n\nDetected by XploiiX XSS Scanner"
+            message = f"🚨 XSS VULNERABILITY DETECTED 🚨\n\nType: {vuln_type}\nURL: {url}\n\nDetected by elcazad0r XSS Scanner"
             
             api_url = f"https://api.telegram.org/bot{token}/sendMessage"
             response = requests.post(api_url, data={
