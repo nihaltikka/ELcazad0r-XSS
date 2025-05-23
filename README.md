@@ -8,10 +8,11 @@ A powerful and comprehensive XSS vulnerability scanner with an intuitive GUI int
   - Query parameters
   - Path segments
   - File extensions
-  - POST parameters
-  - HTTP headers
-  - DOM-based vectors
-  - Cookie-based vectors
+- **Customizable Payloads**:
+  - Default payloads
+  - Custom payloads from a file
+  - Custom payloads from a list
+
 
 - **User-friendly Interface**: Built with PyQt5 for a smooth user experience
   
@@ -55,7 +56,6 @@ For Windows:
 - Download Chrome from the official website
 - Run the installer and follow the on-screen instructions
 - Verify installation by opening Chrome
-  
 For macOS:
 
 - Download Chrome from the official website
@@ -89,15 +89,12 @@ Results are displayed in categorized tabs:
 - Query Parameter XSS
 - Path XSS
 - Extension XSS
-- DOM XSS
-- POST XSS
-- Header XSS
-- Cookie XSS
+
 
 ## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Author
-https://www.linkedin.com/in/nihaltikka - LinkedIn
+https://github.com/nihaltikka - GitHub Profile
 ## Disclaimer
 This tool is for educational purposes and authorized security testing only. Always obtain proper permission before scanning any website or application.

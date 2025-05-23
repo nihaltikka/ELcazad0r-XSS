@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QTextEdit, QPushButton, QProgressBar,
     QTabWidget, QListWidget, QMessageBox, QCheckBox, QListWidgetItem,
     QFileDialog, QGroupBox, QFormLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsTextItem, QGraphicsRectItem, QDialog
+    QGraphicsTextItem, QGraphicsRectItem, QDialog, QTableWidget, QTableWidgetItem
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl, QTimer
 from PyQt5.QtGui import QDesktopServices, QPainter, QFont, QBrush, QColor, QImage, QPixmap, QIcon
@@ -39,6 +39,7 @@ class XSSScannerThread(QThread):
     tab_log_signal = pyqtSignal(str, str)  # Tab name, log message
     alert_count_signal = pyqtSignal(int)   # Alert count update
     url_index_signal = pyqtSignal(int, int)  # Current URL index, total URLs
+    cleanup_signal = pyqtSignal() 
 
     def __init__(self, target_urls, payloads, use_headless, telegram_config=None, resume_data=None, test_config=None):
         super().__init__()
@@ -51,15 +52,11 @@ class XSSScannerThread(QThread):
         self.driver = None
         self.resume_data = resume_data or {}
         self.alert_count = 0
-        # Default test configuration (all tests enabled)
+        # Default test configuration (only query params, path segments, and file extensions enabled)
         self.test_config = test_config or {
             'query_params': True,
             'path_segments': True,
-            'file_extensions': True,
-            'post_params': True,
-            'http_headers': True,
-            'dom': True,
-            'cookies': True
+            'file_extensions': True
         }
         self.init_scan_positions()
         
@@ -132,8 +129,7 @@ class XSSScannerThread(QThread):
         except Exception as e:
             self.update_signal.emit(f"Error setting up Chrome driver: {str(e)}")
             results = {
-                'query_xss': [], 'path_xss': [], 'extension_xss': [], 'dom_xss': [],
-                'post_xss': [], 'header_xss': [], 'cookie_xss': [],
+                'query_xss': [], 'path_xss': [], 'extension_xss': [], 
                 'errors': [f"Failed to initialize Chrome driver: {str(e)}"]
             }
             self.result_signal.emit(results)
@@ -142,13 +138,11 @@ class XSSScannerThread(QThread):
     def run(self):
         """Main scanning loop (sequential, like Code 1)"""
         results = {
-            'query_xss': [], 'path_xss': [], 'extension_xss': [], 'dom_xss': [],
-            'post_xss': [], 'header_xss': [], 'cookie_xss': [], 'errors': []
+            'query_xss': [], 'path_xss': [], 'extension_xss': []
         }
 
         try:
             self.setup_driver()
-            total_urls = len(self.target_urls)
             
             # Process URLs one by one (no ThreadPoolExecutor)
             for url_idx, target_url in enumerate(self.target_urls[self.current_url_index:], self.current_url_index):
@@ -156,8 +150,8 @@ class XSSScannerThread(QThread):
                     break
                     
                 self.current_url_index = url_idx
-                # Emit the current URL index and total URLs
-                self.url_index_signal.emit(url_idx + 1, total_urls)
+                # Add this line to emit the URL progress signal
+                self.url_index_signal.emit(url_idx + 1, len(self.target_urls))
                 self.update_signal.emit(f"Starting scan on: {target_url}")
                 parsed_url = urlparse(target_url)
 
@@ -266,21 +260,6 @@ class XSSScannerThread(QThread):
                     
                     self.current_ext_payload_index = 0
 
-                # Test POST Parameters (simplified version)
-                if self.test_config.get('post_params', True):
-                    self.test_post_parameters(parsed_url, results)
-                
-                # Test HTTP Headers (simplified version)
-                if self.test_config.get('http_headers', True):
-                    self.test_http_headers(target_url, results)
-                
-                # Test DOM XSS
-                if self.test_config.get('dom', True):
-                    self.test_dom_xss(target_url, results)
-                
-                # Test Cookie-based XSS
-                if self.test_config.get('cookies', True):
-                    self.test_cookie_xss(target_url, results)
 
         except Exception as e:
             results['errors'].append(f"Scanner error: {str(e)}")
@@ -404,334 +383,11 @@ class XSSScannerThread(QThread):
             self.update_signal_safe(f"Error testing {url}: {str(e)}")
             results['errors'].append(f"Error testing {url}: {str(e)}")
 
-    def test_post_parameters(self, parsed_url, results):
-        """Test POST parameters (simplified version)"""
-        if not parsed_url.query:
-            return
-            
-        query_params = parse_qs(parsed_url.query)
-        param_keys = list(query_params.keys())
-        
-        for param in param_keys:
-            if not self.running:
-                break
-                
-            for payload in self.payloads:
-                if not self.running:
-                    break
-                    
-                while self.paused:
-                    self.msleep(500)
-                    if not self.running:
-                        break
-                        
-                self.update_signal_safe(f"Testing POST param: {param} with payload: {payload}")
-                
-                # Submit POST request via Selenium (simpler than temp files)
-                try:
-                    self.driver.get(parsed_url.geturl())
-                    
-                    # Properly escape payload for JavaScript
-                    escaped_payload = payload.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
-                    escaped_url = parsed_url.geturl().replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
-                    
-                    script = f"""
-                        try {{
-                            var form = document.createElement('form');
-                            form.method = 'POST';
-                            form.action = '{escaped_url}';
-                            var input = document.createElement('input');
-                            input.type = 'hidden';
-                            input.name = '{param}';
-                            input.value = '{escaped_payload}';
-                            form.appendChild(input);
-                            document.body.appendChild(form);
-                            form.submit();
-                            return true;
-                        }} catch(e) {{
-                            console.error('Form submission error:', e);
-                            return false;
-                        }}
-                    """
-                    
-                    # Execute with try-catch to handle JavaScript errors
-                    submission_success = self.driver.execute_script(script)
-                    
-                    if not submission_success:
-                        self.update_signal.emit(f"Failed to submit POST form for {param}")
-                        continue
-                    
-                    # Wait for page to load after form submission
-                    self.msleep(1000)
-                    
-                    # Check for XSS (same as test_url)
-                    page_source = self.driver.page_source
-                    if payload in page_source:
-                        self.update_signal_safe("POST payload reflected!")
-                        
-                        # Check if an alert was triggered
-                        try:
-                            alert_triggered = self.driver.execute_script("return window.last_alert !== undefined;")
-                            if alert_triggered:
-                                alert_text = self.driver.execute_script("return window.last_alert;")
-                                self.update_signal_safe(f"XSS Confirmed! Alert with text: {html.escape(str(alert_text))}")
-                                
-                                # Record finding and generate report
-                                result = {
-                                    'type': 'post',
-                                    'location': param,
-                                    'payload': payload,
-                                    'url': parsed_url.geturl(),
-                                    'vulnerable': True,
-                                    'confirmed': True,
-                                    'alert_text': alert_text,
-                                    'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                }
-                                results['post_xss'].append(result)
-                                self.alert_count += 1
-                                self.alert_count_signal.emit(self.alert_count)
-                                
-                                # Generate vulnerability report
-                                if hasattr(self, 'tab_log_signal'):
-                                    self.tab_log_signal.emit("Vulnerabilities", f"POST XSS found in {param} at {parsed_url.geturl()}")
-                                
-                                # Telegram notification if enabled
-                                if self.telegram_config and self.telegram_config.get('enabled'):
-                                    self.telegram_signal.emit(parsed_url.geturl(), f"POST XSS in {param}")
-                        except Exception as js_error:
-                            self.update_signal_safe(f"Error checking for alert: {str(js_error)}")
-                except Exception as e:
-                    self.update_signal_safe(f"Error testing POST: {str(e)}")
-                    results['errors'].append(f"Error testing POST {param}: {str(e)}")
-
-    def test_http_headers(self, target_url, results):
-        """Test HTTP headers (simplified version)"""
-        headers_to_test = ['Referer', 'User-Agent', 'X-Forwarded-For']
-        
-        for header in headers_to_test:
-            if not self.running:
-                break
-                
-            for payload in self.payloads:
-                if not self.running:
-                    break
-                    
-                while self.paused:
-                    self.msleep(500)
-                    if not self.running:
-                        break
-                        
-                self.update_signal_safe(f"Testing header: {header} with payload: {payload}")
-                
-                try:
-                    # Use requests to test header reflection
-                    headers = {header: payload}
-                    response = requests.get(target_url, headers=headers, timeout=10)
-                    
-                    if payload in response.text:
-                        self.update_signal_safe(f"Header {header} reflected in response!")
-                        result = {
-                            'type': 'header',
-                            'location': header,
-                            'payload': payload,
-                            'url': target_url,
-                            'vulnerable': True,
-                            'confirmed': False  # Can't confirm execution via requests
-                        }
-                        results['header_xss'].append(result)
-                except Exception as e:
-                    self.update_signal_safe(f"Error testing header {header}: {str(e)}")
-                    results['errors'].append(f"Error testing header {header}: {str(e)}")
-
-    def test_dom_xss(self, target_url, results):
-        """Test for DOM-based XSS vulnerabilities"""
-        if not self.running or not self.driver:
-            return
-            
-        self.update_signal_safe(f"Testing DOM XSS on: {target_url}")
-        
-        try:
-            # Navigate to the URL
-            self.driver.get(target_url)
-            
-            # Wait for page to load
-            self.msleep(1000)
-            
-            # Inject DOM XSS detection script
-            detection_script = """
-            (function() {
-                // List of common DOM XSS sinks
-                var sinks = [
-                    'document.write', 'innerHTML', 'outerHTML', 'insertAdjacentHTML',
-                    'eval', 'setTimeout', 'setInterval', 'location', 'document.cookie',
-                    'document.domain', 'document.implementation.createHTMLDocument'
-                ];
-                
-                // Check for sink usage with user input
-                var vulnerableSinks = [];
-                
-                // Check URL parameters
-                var urlParams = new URLSearchParams(window.location.search);
-                var hasParams = false;
-                
-                for (let [key, value] of urlParams) {
-                    hasParams = true;
-                    // Check if parameter value is used in any sink
-                    for (let sink of sinks) {
-                        if (document.body && document.body.innerHTML.includes(sink) && 
-                            document.body.innerHTML.includes(value)) {
-                            vulnerableSinks.push({sink: sink, param: key});
-                        }
-                    }
-                }
-                
-                // Check hash fragment
-                if (window.location.hash) {
-                    for (let sink of sinks) {
-                        if (document.body && document.body.innerHTML.includes(sink) && 
-                            document.body.innerHTML.includes(window.location.hash)) {
-                            vulnerableSinks.push({sink: sink, param: 'hash'});
-                        }
-                    }
-                }
-                
-                return {
-                    vulnerableSinks: vulnerableSinks,
-                    hasParams: hasParams,
-                    url: window.location.href
-                };
-            })();
-            """
-            
-            dom_results = self.driver.execute_script(detection_script)
-            
-            if dom_results.get('vulnerableSinks', []):
-                for sink_info in dom_results['vulnerableSinks']:
-                    self.update_signal_safe(f"Potential DOM XSS found! Sink: {sink_info['sink']}, Parameter: {sink_info['param']}")
-                    
-                    # Try to confirm with a test payload
-                    parsed = urlparse(target_url)
-                    query_params = parse_qs(parsed.query)
-                    
-                    for payload in self.payloads:
-                        if sink_info['param'] != 'hash':
-                            # Modify the parameter
-                            if sink_info['param'] in query_params:
-                                modified_params = query_params.copy()
-                                modified_params[sink_info['param']] = [payload]
-                                modified_query = urlencode(modified_params, doseq=True)
-                                test_url = urlunparse(parsed._replace(query=modified_query))
-                                
-                                # Test the URL
-                                self.update_signal_safe(f"Testing DOM XSS with payload in parameter {sink_info['param']}")
-                                self.test_url(test_url, payload, 'dom', sink_info['sink'], results)
-                                break
-                        else:
-                            # Test with hash payload
-                            test_url = f"{target_url.split('#')[0]}#{payload}"
-                            self.update_signal_safe("Testing DOM XSS with payload in hash fragment")
-                            self.test_url(test_url, payload, 'dom', 'hash', results)
-                            break
-            elif dom_results.get('hasParams', False):
-                self.update_signal_safe("No obvious DOM XSS sinks found with current parameters")
-            else:
-                self.update_signal_safe("No parameters to test for DOM XSS")
-                
-        except Exception as e:
-            self.update_signal_safe(f"Error testing DOM XSS: {str(e)}")
-            results['errors'].append(f"Error testing DOM XSS on {target_url}: {str(e)}")
     
-    def test_cookie_xss(self, target_url, results):
-        """Test for Cookie-based XSS vulnerabilities"""
-        if not self.running or not self.driver:
-            return
-            
-        self.update_signal_safe(f"Testing Cookie XSS on: {target_url}")
-        
-        try:
-            # First navigate to the page to get any legitimate cookies
-            self.driver.get(target_url)
-            self.msleep(1000)
-            
-            # Get existing cookies
-            original_cookies = self.driver.get_cookies()
-            
-            # Test each cookie with payloads
-            for cookie in original_cookies:
-                cookie_name = cookie['name']
-                
-                for payload in self.payloads:
-                    if not self.running:
-                        break
-                        
-                    while self.paused:
-                        self.msleep(500)
-                        if not self.running:
-                            break
-                    
-                    # Delete the cookie first
-                    self.driver.delete_cookie(cookie_name)
-                    
-                    # Add modified cookie with payload
-                    self.driver.add_cookie({
-                        'name': cookie_name,
-                        'value': payload,
-                        'path': cookie.get('path', '/'),
-                        'domain': cookie.get('domain', None)
-                    })
-                    
-                    # Refresh the page to trigger the cookie
-                    self.driver.refresh()
-                    self.msleep(1000)
-                    
-                    # Check if payload is reflected
-                    page_source = self.driver.page_source
-                    if payload in page_source:
-                        self.update_signal_safe(f"Cookie {cookie_name} with payload reflected in response!")
-                        
-                        # Check if an alert was triggered
-                        alert_triggered = self.driver.execute_script("return window.last_alert !== undefined;")
-                        if alert_triggered:
-                            alert_text = self.driver.execute_script("return window.last_alert;")
-                            self.update_signal_safe(f"XSS Confirmed! Alert with text: {html.escape(str(alert_text))}")
-                            
-                            result = {
-                                'type': 'cookie',
-                                'location': cookie_name,
-                                'payload': payload,
-                                'url': target_url,
-                                'vulnerable': True,
-                                'confirmed': True,
-                                'alert_text': alert_text
-                            }
-                            results['cookie_xss'].append(result)
-                            self.alert_count += 1
-                            self.alert_count_signal.emit(self.alert_count)
-                            
-                            if self.telegram_config and self.telegram_config.get('enabled'):
-                                self.telegram_signal.emit(target_url, f"COOKIE XSS in {cookie_name}")
-                        else:
-                            result = {
-                                'type': 'cookie',
-                                'location': cookie_name,
-                                'payload': payload,
-                                'url': target_url,
-                                'vulnerable': True,
-                                'confirmed': False
-                            }
-                            results['cookie_xss'].append(result)
-                    
-                    # Restore original cookie
-                    self.driver.delete_cookie(cookie_name)
-                    self.driver.add_cookie(cookie)
-            
-        except Exception as e:
-            self.update_signal_safe(f"Error testing Cookie XSS: {str(e)}")
-            results['errors'].append(f"Error testing Cookie XSS on {target_url}: {str(e)}")
-
 class XSSScannerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.post_params_check = QCheckBox("Test POST Parameters")
         self.setWindowTitle("elcazad0r XSS Scanner")
         self.setGeometry(100, 100, 1200, 800)
         self.setMinimumSize(1000, 700)
@@ -751,6 +407,12 @@ class XSSScannerGUI(QMainWindow):
             '"><iframe src="javascript:alert(7)">'
         ]
         
+        # Initialize query_xss_list and path_xss_list
+        self.query_xss_list = QListWidget()
+        self.path_xss_list = QListWidget()
+        self.extension_xss_list = QListWidget()
+        self.errors_list = QListWidget() 
+        
         self.scan_start_time = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_status_bar_time_and_memory)
@@ -763,7 +425,59 @@ class XSSScannerGUI(QMainWindow):
         self.footer_timer = QTimer(self)
         self.footer_timer.timeout.connect(self.update_footer)
         self.footer_timer.start(1000)  # Update every second
-        self.update_footer()  # Initial update
+        self.update_footer()  # Initial update        self.status_bar = self.statusBar()  # Initialize status_bar attribute
+        
+    def populate_table(self, table, results):
+        """Populate a results table with XSS findings"""
+        table.setRowCount(len(results))
+        
+        for row, result in enumerate(results):
+            # URL column
+            url_item = QTableWidgetItem(result['url'])
+            table.setItem(row, 0, url_item)
+            
+            # Location column
+            location_item = QTableWidgetItem(str(result['location']))
+            table.setItem(row, 1, location_item)
+            
+            # Payload column
+            payload_item = QTableWidgetItem(result['payload'])
+            table.setItem(row, 2, payload_item)
+            
+            # Confirmed column
+            confirmed_text = "Yes" if result.get('confirmed', False) else "Potential"
+            confirmed_item = QTableWidgetItem(confirmed_text)
+            table.setItem(row, 3, confirmed_item)
+            
+            # Status column
+            status_text = f"Status: {result.get('status_code', 'N/A')}"
+            if result.get('alert_text'):
+                status_text += f" | Alert: {result.get('alert_text')}"
+            status_item = QTableWidgetItem(status_text)
+            table.setItem(row, 4, status_item)
+            
+            # Actions column - Add buttons for copy URL, open in browser, etc.
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout()
+            actions_layout.setContentsMargins(2, 2, 2, 2)
+            
+            # Copy URL button
+            copy_btn = QPushButton("Copy URL")
+            copy_btn.setProperty("url", result['url'])
+            copy_btn.clicked.connect(self.copy_url_to_clipboard)
+            actions_layout.addWidget(copy_btn)
+            
+            # Open in browser button
+            open_btn = QPushButton("Open")
+            open_btn.setProperty("url", result['url'])
+            open_btn.clicked.connect(self.open_url_in_browser)
+            actions_layout.addWidget(open_btn)
+            
+            actions_widget.setLayout(actions_layout)
+            table.setCellWidget(row, 5, actions_widget)
+        
+        # Resize columns to content
+        table.resizeColumnsToContents()
         
     def create_test_config_group(self):
         """Create a group box with checkboxes for test configuration"""
@@ -780,32 +494,10 @@ class XSSScannerGUI(QMainWindow):
         self.file_extensions_check = QCheckBox("File Extensions")
         self.file_extensions_check.setChecked(True)
         
-        self.post_params_check = QCheckBox("POST Parameters")
-        self.post_params_check.setChecked(True)
-        
-        self.http_headers_check = QCheckBox("HTTP Headers")
-        self.http_headers_check.setChecked(True)
-        
-        self.dom_check = QCheckBox("DOM XSS")
-        self.dom_check.setChecked(True)
-        
-        self.cookies_check = QCheckBox("Cookie XSS")
-        self.cookies_check.setChecked(True)
-        
         # Add checkboxes to layout
         layout.addWidget(self.query_params_check)
         layout.addWidget(self.path_segments_check)
         layout.addWidget(self.file_extensions_check)
-        layout.addWidget(self.post_params_check)
-        layout.addWidget(self.http_headers_check)
-        layout.addWidget(self.dom_check)
-        layout.addWidget(self.cookies_check)
-        
-        # Add a "Select All" checkbox
-        self.select_all_check = QCheckBox("Select All")
-        self.select_all_check.setChecked(True)
-        self.select_all_check.stateChanged.connect(self.toggle_all_tests)
-        layout.addWidget(self.select_all_check)
         
         test_config_group.setLayout(layout)
         return test_config_group
@@ -816,21 +508,13 @@ class XSSScannerGUI(QMainWindow):
         self.query_params_check.setChecked(is_checked)
         self.path_segments_check.setChecked(is_checked)
         self.file_extensions_check.setChecked(is_checked)
-        self.post_params_check.setChecked(is_checked)
-        self.http_headers_check.setChecked(is_checked)
-        self.dom_check.setChecked(is_checked)
-        self.cookies_check.setChecked(is_checked)
 
     def get_test_config(self):
         """Get the current test configuration from checkboxes"""
         return {
             'query_params': self.query_params_check.isChecked(),
             'path_segments': self.path_segments_check.isChecked(),
-            'file_extensions': self.file_extensions_check.isChecked(),
-            'post_params': self.post_params_check.isChecked(),
-            'http_headers': self.http_headers_check.isChecked(),
-            'dom': self.dom_check.isChecked(),
-            'cookies': self.cookies_check.isChecked()
+            'file_extensions': self.file_extensions_check.isChecked()
         }
 
     def update_footer(self):
@@ -1193,43 +877,41 @@ class XSSScannerGUI(QMainWindow):
         self.layout.addLayout(buttons_layout)
 
     def init_results_tabs(self):
-        """Initialize the results tabs"""
+        """Initialize results tabs"""
         self.results_tabs = QTabWidget()
         self.layout.addWidget(self.results_tabs)
         
-        # Initialize each results tab with a log area
-        self.init_xss_tab("query", "Query XSS")
-        self.init_xss_tab("path", "Path XSS")
-        self.init_xss_tab("extension", "Extension XSS")
-        self.init_xss_tab("dom", "DOM XSS")
-        self.init_xss_tab("post", "POST XSS")
-        self.init_xss_tab("header", "Header XSS")
-        self.init_xss_tab("cookie", "Cookie XSS")
-        self.init_errors_tab()
-        self.init_visualization_tab()
+        # Initialize tabs for different XSS types
+        self.init_xss_tab('query', 'Query Parameter XSS')
+        self.init_xss_tab('path', 'Path XSS')
+        self.init_xss_tab('extension', 'Extension XSS')
+        
+        # Add error log tab
+        self.error_log = QTextEdit()
+        self.error_log.setReadOnly(True)
+        self.results_tabs.addTab(self.error_log, "Error Log")
+        
+        return self.results_tabs
+        
+        return self.results_tabs
         
     def init_xss_tab(self, tab_type, tab_name):
-        """Initialize an XSS results tab with results list and log area"""
+        """Initialize a tab for XSS results"""
         tab = QWidget()
         layout = QVBoxLayout()
+        
+        # Create table for this XSS type
+        table = QTableWidget()
+        table.setColumnCount(6)
+        table.setHorizontalHeaderLabels(["URL", "Location", "Payload", "Confirmed", "Status", "Actions"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        
+        # Store the table as an attribute of the class
+        setattr(self, f"{tab_type}_table", table)
+        
+        layout.addWidget(table)
         tab.setLayout(layout)
-        
-        # Results list
-        results_list = QListWidget()
-        results_list.itemDoubleClicked.connect(self.copy_url_to_clipboard)
-        setattr(self, f"{tab_type}_xss_list", results_list)
-        
-        # Log area
-        log_area = QTextEdit()
-        log_area.setReadOnly(True)
-        log_area.setMaximumHeight(150)
-        setattr(self, f"{tab_type}_xss_log", log_area)
-        
-        # Add widgets to tab
-        layout.addWidget(QLabel(f"{tab_name} Results:"))
-        layout.addWidget(results_list)
-        layout.addWidget(log_area)
-        
         self.results_tabs.addTab(tab, tab_name)
 
     def init_errors_tab(self):
@@ -1368,20 +1050,22 @@ class XSSScannerGUI(QMainWindow):
         """Reset payloads to default values"""
         self.payloads_input.setPlainText('\n'.join(self.default_payloads))
 
-    def copy_url_to_clipboard(self, item):
-        """Copy URL from list item to clipboard"""
-        url = item.data(Qt.UserRole)
-        clipboard = QApplication.clipboard()
-        clipboard.setText(url)
-        QMessageBox.information(self, "Copied", "URL copied to clipboard!")
-        
-        # Ask if user wants to open the URL in browser
-        reply = QMessageBox.question(self, 'Open URL', 
-                                     'Do you want to open this URL in your browser?',
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        
-        if reply == QMessageBox.Yes:
+    def copy_url_to_clipboard(self):
+        """Copy URL to clipboard when button is clicked"""
+        button = self.sender()
+        if button:
+            url = button.property("url")
+            clipboard = QApplication.clipboard()
+            clipboard.setText(url)
+            self.statusBar().showMessage(f"URL copied to clipboard: {url}", 3000)
+
+    def open_url_in_browser(self):
+        """Open URL in default browser when button is clicked"""
+        button = self.sender()
+        if button:
+            url = button.property("url")
             QDesktopServices.openUrl(QUrl(url))
+            self.statusBar().showMessage(f"Opening URL in browser: {url}", 3000)
 
     def connect_scanner_signals(self):
         """Connect all scanner thread signals to appropriate slots"""
@@ -1471,12 +1155,12 @@ class XSSScannerGUI(QMainWindow):
             path_parts = [p for p in parsed_url.path.split('/') if p]
             total += len(path_parts) * len(payloads)
             
-            # Count extension tests (2 tests per payload if there's a file extension)
+            # Count file extension tests
             if '.' in parsed_url.path:
-                total += 2 * len(payloads)  # Before and after extension
-                
-            # Add DOM XSS tests (1 per URL)
-            total += 1
+                path_parts = parsed_url.path.split('/')
+                filename = path_parts[-1]
+                if '.' in filename:
+                    total += len(payloads)
         
         # Add a small buffer to ensure progress bar reaches 100%
         total = int(total * 1.05)  # Add 5% buffer
@@ -1484,15 +1168,11 @@ class XSSScannerGUI(QMainWindow):
         return max(total, 1)  # Ensure at least 1 test to avoid division by zero
     
     def initialize_results_structure(self):
-        """Initialize the results dictionary structure"""
+        """Initialize the results data structure"""
         return {
             'query_xss': [],
             'path_xss': [],
             'extension_xss': [],
-            'dom_xss': [],
-            'post_xss': [],
-            'header_xss': [],
-            'cookie_xss': [],
             'errors': []
         }
 
@@ -1565,10 +1245,7 @@ class XSSScannerGUI(QMainWindow):
                 self.query_params_check.setChecked(test_config.get('query_params', True))
                 self.path_segments_check.setChecked(test_config.get('path_segments', True))
                 self.file_extensions_check.setChecked(test_config.get('file_extensions', True))
-                self.post_params_check.setChecked(test_config.get('post_params', True))
-                self.http_headers_check.setChecked(test_config.get('http_headers', True))
-                self.dom_check.setChecked(test_config.get('dom', True))
-                self.cookies_check.setChecked(test_config.get('cookies', True))
+
     
     def auto_save_state(self, state):
         """Automatically save the current scan state"""
@@ -1651,10 +1328,6 @@ class XSSScannerGUI(QMainWindow):
                 self.query_params_check.setChecked(test_config.get('query_params', True))
                 self.path_segments_check.setChecked(test_config.get('path_segments', True))
                 self.file_extensions_check.setChecked(test_config.get('file_extensions', True))
-                self.post_params_check.setChecked(test_config.get('post_params', True))
-                self.http_headers_check.setChecked(test_config.get('http_headers', True))
-                self.dom_check.setChecked(test_config.get('dom', True))
-                self.cookies_check.setChecked(test_config.get('cookies', True))
                 
                 # Update select all checkbox based on loaded state
                 all_checked = all(test_config.values())
@@ -1735,8 +1408,7 @@ class XSSScannerGUI(QMainWindow):
         has_results = (
             self.query_xss_list.count() > 0 or
             self.path_xss_list.count() > 0 or
-            self.extension_xss_list.count() > 0 or
-            self.dom_xss_list.count() > 0
+            self.extension_xss_list.count() > 0
         )
         self.report_button.setEnabled(has_results)
         
@@ -1804,7 +1476,7 @@ class XSSScannerGUI(QMainWindow):
         list_widget.addItem(item)
         
     def update_results(self, results):
-        """Update the results display with new scan results"""
+        """Update the results tabs with scan findings"""
         # Update stored results for report generation
         for key in results:
             if isinstance(results[key], list):
@@ -1812,48 +1484,36 @@ class XSSScannerGUI(QMainWindow):
                     self.scan_results[key] = []
                 self.scan_results[key].extend(results[key])
         
-        # Update each results tab
-        if results['query_xss']:
-            for vuln in results['query_xss']:
-                self.add_result_to_list(vuln, self.query_xss_list)
-
-        if results['path_xss']:
-            for vuln in results['path_xss']:
-                self.add_result_to_list(vuln, self.path_xss_list)
-
-        if results['extension_xss']:
-            for vuln in results['extension_xss']:
-                self.add_result_to_list(vuln, self.extension_xss_list)
-
-        if results['dom_xss']:
-            for vuln in results['dom_xss']:
-                self.add_result_to_list(vuln, self.dom_xss_list)
-                
-        if results.get('post_xss'):
-            for vuln in results['post_xss']:
-                self.add_result_to_list(vuln, self.post_xss_list)
-                
-        if results.get('header_xss'):
-            for vuln in results['header_xss']:
-                self.add_result_to_list(vuln, self.header_xss_list)
-                
-        if results.get('cookie_xss'):
-            for vuln in results['cookie_xss']:
-                self.add_result_to_list(vuln, self.cookie_xss_list)
-
-        if results['errors']:
+        # Clear existing results
+        for tab_name in ['query', 'path', 'extension']:
+            table = getattr(self, f"{tab_name}_table")
+            table.setRowCount(0)
+        
+        # Update Query XSS results
+        if 'query_xss' in results and results['query_xss']:
+            self.populate_table(self.query_table, results['query_xss'])
+        
+        # Update Path XSS results
+        if 'path_xss' in results and results['path_xss']:
+            self.populate_table(self.path_table, results['path_xss'])
+        
+        # Update Extension XSS results
+        if 'extension_xss' in results and results['extension_xss']:
+            self.populate_table(self.extension_table, results['extension_xss'])
+        
+        # Update error log
+        if 'errors' in results and results['errors']:
+            self.error_log.clear()
             for error in results['errors']:
-                self.errors_list.addItem(error)
-                
-        # Update the visualization
-        self.update_visualization()
+                self.error_log.append(error)
+        
+        # Save results to file
+        self.save_results(results)
 
     def clear_results(self):
         """Clear all scan results"""
         lists_to_clear = [
-            'query_xss_list', 'path_xss_list', 'extension_xss_list',
-            'dom_xss_list', 'post_xss_list', 'header_xss_list',
-            'cookie_xss_list', 'errors_list'
+            'query_xss_list', 'path_xss_list', 'extension_xss_list', 'errors_list'
         ]
         
         for list_name in lists_to_clear:
@@ -1871,8 +1531,8 @@ class XSSScannerGUI(QMainWindow):
         if hasattr(self, 'viz_stats_text'):
             self.viz_stats_text.clear()
 
-    def send_telegram_notification(self, url, vuln_type):
-        """Send a Telegram notification about a found vulnerability"""
+    def send_telegram_notification(self, vulnerabilities):
+        """Send Telegram notifications for all found vulnerabilities"""
         try:
             token = self.telegram_token.text().strip()
             chat_id = self.telegram_chat_id.text().strip()
@@ -1880,20 +1540,21 @@ class XSSScannerGUI(QMainWindow):
             if not token or not chat_id:
                 self.errors_list.addItem("Telegram notification failed: Missing token or chat ID")
                 return
+            
+            for url, vuln_type in vulnerabilities:
+                message = f"🚨 XSS VULNERABILITY DETECTED 🚨\n\nType: {vuln_type}\nURL: {url}\n\nDetected by elcazad0r XSS Scanner"
                 
-            message = f"🚨 XSS VULNERABILITY DETECTED 🚨\n\nType: {vuln_type}\nURL: {url}\n\nDetected by elcazad0r XSS Scanner"
+                api_url = f"https://api.telegram.org/bot{token}/sendMessage"
+                response = requests.post(api_url, data={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "Markdown"
+                })
+                
+                if response.status_code != 200:
+                    self.errors_list.addItem(f"Telegram notification failed for {url}: {response.text}")
             
-            api_url = f"https://api.telegram.org/bot{token}/sendMessage"
-            response = requests.post(api_url, data={
-                "chat_id": chat_id,
-                "text": message,
-                "parse_mode": "Markdown"
-            })
-            
-            if response.status_code == 200:
-                self.status_label.setText(f"Status: Telegram notification sent")
-            else:
-                self.errors_list.addItem(f"Telegram notification failed: {response.text}")
+            self.status_label.setText(f"Status: {len(vulnerabilities)} Telegram notifications sent")
         except Exception as e:
             self.errors_list.addItem(f"Telegram notification error: {str(e)}")
 
@@ -1907,7 +1568,6 @@ class XSSScannerGUI(QMainWindow):
             <li>Query parameter testing</li>
             <li>Path segment testing</li>
             <li>File extension testing</li>
-            <li>DOM XSS detection</li>
             <li>Telegram notifications</li>
             <li>HTML report generation</li>
         </ul>
@@ -1922,9 +1582,8 @@ class XSSScannerGUI(QMainWindow):
             return
 
         # Calculate report metrics
-        confirmed_count = sum(len([v for v in self.scan_results[vuln_type] if v.get('confirmed', False)]) 
-                            for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 
-                                            'post_xss', 'header_xss', 'cookie_xss'])
+        confirmed_count = sum(len([v for v in self.scan_results.get(vuln_type, []) if v.get('confirmed', False)])
+                            for vuln_type in ['query_xss', 'path_xss', 'extension_xss'])
         
         waf_count = sum(1 for vuln_type in self.scan_results 
                     for v in self.scan_results[vuln_type] 
@@ -1937,10 +1596,6 @@ class XSSScannerGUI(QMainWindow):
             'Query': len(self.scan_results.get('query_xss', [])),
             'Path': len(self.scan_results.get('path_xss', [])),
             'Extension': len(self.scan_results.get('extension_xss', [])),
-            'DOM': len(self.scan_results.get('dom_xss', [])),
-            'POST': len(self.scan_results.get('post_xss', [])),
-            'Header': len(self.scan_results.get('header_xss', [])),
-            'Cookie': len(self.scan_results.get('cookie_xss', []))
         }
 
         # Severity classification
@@ -2118,8 +1773,7 @@ class XSSScannerGUI(QMainWindow):
                                 <h2><i class="fas fa-exclamation-triangle"></i> Confirmed Findings</h2>''')
 
                 # Vulnerability sections
-                for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 
-                                'post_xss', 'header_xss', 'cookie_xss']:
+                for vuln_type in ['query_xss', 'path_xss', 'extension_xss']:
                     if self.scan_results.get(vuln_type):
                         confirmed_vulns = [v for v in self.scan_results[vuln_type] if isinstance(v, dict) and v.get('confirmed', False)]
                         if confirmed_vulns:
@@ -2243,10 +1897,6 @@ class XSSScannerGUI(QMainWindow):
             'query_xss': "Sanitize and validate all query parameters. Use context-appropriate encoding and consider implementing a Content Security Policy.",
             'path_xss': "Validate URL path segments and avoid directly reflecting user-controlled path components in the response.",
             'extension_xss': "Validate file extensions and avoid directly reflecting user input in the response.",
-            'dom_xss': "Use safe DOM APIs and avoid using innerHTML, document.write, or eval with user-controlled input.",
-            'post_xss': "Sanitize and validate all POST parameters. Use context-appropriate encoding.",
-            'header_xss': "Validate and sanitize all HTTP headers that might be reflected in the response.",
-            'cookie_xss': "Validate cookie values and avoid reflecting them in the response. Set the HttpOnly flag on sensitive cookies."
         }
         return advice.get(vuln_type, "Implement proper input validation, output encoding, and consider using a Content Security Policy.")
 
@@ -2267,7 +1917,7 @@ class XSSScannerGUI(QMainWindow):
         total_potential = 0
         processed_urls = set()
         
-        for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 'post_xss', 'header_xss', 'cookie_xss']:
+        for vuln_type in ['query_xss', 'path_xss', 'extension_xss']:
             if vuln_type in results:
                 for result in results[vuln_type]:
                     result_id = f"{result['url']}|{result['payload']}|{result['location']}"
@@ -2378,7 +2028,7 @@ class XSSScannerGUI(QMainWindow):
         """Display a visual map of vulnerable points"""
         domains = {}
         
-        for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 'post_xss', 'header_xss', 'cookie_xss']:
+        for vuln_type in ['query_xss', 'path_xss', 'extension_xss']:
             if vuln_type in self.scan_results:
                 for result in self.scan_results[vuln_type]:
                     if not result.get('vulnerable', False):
@@ -2452,7 +2102,7 @@ class XSSScannerGUI(QMainWindow):
         """Display statistics about payload effectiveness"""
         payload_stats = {}
         
-        for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 'post_xss', 'header_xss', 'cookie_xss']:
+        for vuln_type in ['query_xss', 'path_xss', 'extension_xss']:
             if vuln_type in self.scan_results:
                 for result in self.scan_results[vuln_type]:
                     if not result.get('vulnerable', False):
@@ -2527,7 +2177,7 @@ class XSSScannerGUI(QMainWindow):
 
         waf_bypass_payloads = {waf: {} for waf in waf_stats.keys()}
         
-        for vuln_type in ['query_xss', 'path_xss', 'extension_xss', 'dom_xss', 'post_xss', 'header_xss', 'cookie_xss']:
+        for vuln_type in ['query_xss', 'path_xss', 'extension_xss']:
             if vuln_type in self.scan_results:
                 for result in self.scan_results[vuln_type]:
                     if not result.get('vulnerable', False):
@@ -2689,6 +2339,54 @@ class XSSScannerGUI(QMainWindow):
     def update_url_counter(self, current_index, total_urls):
         """Update the URL counter display"""
         self.url_counter_label.setText(f"URL: {current_index}/{total_urls}")
+        
+    def save_results(self, results):
+        """Save scan results to a JSON file"""
+        try:
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"xss_scan_results_{timestamp}.json"
+            
+            # Create results directory if it doesn't exist
+            results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+            if not os.path.exists(results_dir):
+                os.makedirs(results_dir)
+                
+            filepath = os.path.join(results_dir, filename)
+            
+            # Add timestamp to results
+            results['timestamp'] = timestamp
+            results['scan_date'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Count vulnerabilities
+            confirmed_count = 0
+            potential_count = 0
+            
+            for result_type in ['query_xss', 'path_xss', 'extension_xss']:
+                for result in results.get(result_type, []):
+                    if result.get('confirmed', False):
+                        confirmed_count += 1
+                    else:
+                        potential_count += 1
+            
+            results['stats'] = {
+                'confirmed_vulnerabilities': confirmed_count,
+                'potential_vulnerabilities': potential_count,
+                'total_vulnerabilities': confirmed_count + potential_count,
+                'errors': len(results.get('errors', []))
+            }
+            
+            # Save to file
+            with open(filepath, 'w') as f:
+                json.dump(results, f, indent=4)
+                
+            self.statusBar().showMessage(f"Results saved to {filepath}", 5000)
+            self.update_status(f"Results saved to {filepath}")
+            
+            return filepath
+        except Exception as e:
+            self.statusBar().showMessage(f"Error saving results: {str(e)}", 5000)
+            self.update_status(f"Error saving results: {str(e)}")
+            return None
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

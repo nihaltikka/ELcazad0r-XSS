@@ -7,6 +7,7 @@ webdriver-manager>=3.5.2
 
 # GUI Framework
 PyQt5>=5.15.4
+PyQt5-sip>=12.9.0
 
 # System Utilities
 psutil>=5.8.0
@@ -16,3 +17,9 @@ python-dateutil>=2.8.2
 
 # Concurrent Processing
 futures>=3.1.1; python_version < '3.2'
+
+# Signal Handling
+PyQt5.QtCore>=5.15.4
+
+# Telegram API
+python-telegram-bot>=13.15
