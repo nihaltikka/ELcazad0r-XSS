@@ -1,3 +1,5 @@
+[![Support My Work](https://img.shields.io/badge/Support_My_Work-PayPal-0070ba?style=for-the-badge&logo=paypal)](https://paypal.me/nihaltikka)
+
 # ELcazad0r XSS Scanner
 
 A powerful and comprehensive XSS vulnerability scanner with an intuitive GUI interface.
