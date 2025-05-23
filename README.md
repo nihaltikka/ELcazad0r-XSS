@@ -56,6 +56,7 @@ For Windows:
 - Download Chrome from the official website
 - Run the installer and follow the on-screen instructions
 - Verify installation by opening Chrome
+  
 For macOS:
 
 - Download Chrome from the official website
