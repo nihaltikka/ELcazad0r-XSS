@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+                    <html lang="en">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>XSS Scan Report</title>
+                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+                        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                        <style>
+                            :root {
+                                --primary-color: #007ACC;
+                                --secondary-color: #3F3F46;
+                                --success-color: #4CAF50;
+                                --danger-color: #D32F2F;
+                                --warning-color: #FFC107;
+                                --background-color: #1E1E1E;
+                                --text-color: #E0E0E0;
+                            }
+
+                            body {
+                                font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+                                line-height: 1.6;
+                                margin: 0;
+                                padding: 20px;
+                                background-color: var(--background-color);
+                                color: var(--text-color);
+                            }
+
+                            .container {
+                                max-width: 1200px;
+                                margin: 0 auto;
+                            }
+
+                            .report-header {
+                                text-align: center;
+                                padding: 2rem;
+                                border-bottom: 2px solid var(--primary-color);
+                                margin-bottom: 2rem;
+                            }
+
+                            .summary-grid {
+                                display: grid;
+                                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                                gap: 1.5rem;
+                                margin-bottom: 2rem;
+                            }
+
+                            .summary-card {
+                                background: #252526;
+                                padding: 1.5rem;
+                                border-radius: 8px;
+                                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                                text-align: center;
+                            }
+
+                            .chart-container {
+                                background: #252526;
+                                padding: 1.5rem;
+                                border-radius: 8px;
+                                margin: 2rem 0;
+                            }
+
+                            .finding {
+                                border: 1px solid #3A3A3A;
+                                padding: 1.5rem;
+                                margin: 1rem 0;
+                                border-radius: 6px;
+                                transition: transform 0.2s;
+                            }
+
+                            .vulnerable {
+                                background-color: #2D2D30;
+                                border-left: 4px solid var(--danger-color);
+                            }
+
+                            .severity-badge {
+                                display: inline-block;
+                                padding: 0.25rem 0.75rem;
+                                border-radius: 20px;
+                                font-size: 0.85rem;
+                                font-weight: 600;
+                                margin-bottom: 1rem;
+                            }
+
+                            .high-severity { background: var(--danger-color); }
+                            .medium-severity { background: var(--warning-color); color: #000; }
+                            .low-severity { background: var(--secondary-color); }
+
+                            .details-table {
+                                width: 100%;
+                                border-collapse: collapse;
+                                margin: 1rem 0;
+                            }
+
+                            .details-table td {
+                                padding: 0.75rem;
+                                border-bottom: 1px solid #3A3A3A;
+                                vertical-align: top;
+                            }
+
+                            .remediation {
+                                background: #1B1B1B;
+                                padding: 1rem;
+                                border-radius: 4px;
+                                margin-top: 1rem;
+                            }
+
+                            @media print {
+                                .chart-container { page-break-inside: avoid; }
+                                .finding { border-left: none; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <header class="report-header">
+                                <h1 class="report-title">
+                                    <i class="fas fa-shield-alt"></i>
+                                    XSS Vulnerability Scan Report
+                                </h1>
+                                <p class="timestamp">Generated: 2025-05-23 10:46:56</p>
+                            </header>
+
+                            <section class="summary-grid">
+                                <div class="summary-card">
+                                    <h3><i class="fas fa-bug"></i> Total Vulnerabilities</h3>
+                                    <p style="font-size: 2.5rem; color: var(--danger-color);">3</p>
+                                </div>
+                                <div class="summary-card">
+                                    <h3><i class="fas fa-clock"></i> Scan Duration</h3>
+                                    <p style="font-size: 2.5rem; color: var(--primary-color);">N/A</p>
+                                </div>
+                                <div class="summary-card">
+                                    <h3><i class="fas fa-lock"></i> WAF Protected</h3>
+                                    <p style="font-size: 2.5rem; color: var(--success-color);">0</p>
+                                </div>
+                            </section>
+
+                            <section class="chart-container">
+                                <h2><i class="fas fa-chart-pie"></i> Vulnerability Distribution</h2>
+                                <canvas id="vulnDistributionChart"></canvas>
+                            </section>
+
+                            <section class="chart-container">
+                                <h2><i class="fas fa-chart-bar"></i> Severity Breakdown</h2>
+                                <canvas id="severityChart"></canvas>
+                            </section>
+
+                            <section class="findings">
+                                <h2><i class="fas fa-exclamation-triangle"></i> Confirmed Findings</h2>
+                            <h3>Query Xss (1)</h3>
+                                <div class="finding vulnerable">
+                                    <div class="severity-badge low-severity">LOW</div>
+                                    <h4>Finding #1</h4>
+                                    <table class="details-table">
+                                    <tr><td>URL</td><td class="url">http://testphp.vulnweb.com/search.php?test=%27%3E%3Csvg%2Fonload%3Dalert%285%29%3E</td></tr>
+                                    <tr><td>Payload</td><td><code class="payload">&#x27;&gt;&lt;svg/onload=alert(5)&gt;</code></td></tr>
+                                    <tr><td>Location</td><td>test</td></tr>
+                                    <tr><td>Parameter</td><td>N/A</td></tr>
+                                    <tr><td>Status Code</td><td>N/A</td></tr>
+                                    <tr><td>WAF Protection</td><td>None detected</td></tr>
+                                    <tr><td>Response</td><td><pre class="response">N/A</pre></td></tr>
+                                    </table>
+                                    <div class="remediation">
+                                        <h5>Recommended Remediation:</h5>
+                                        Sanitize and validate all query parameters. Use context-appropriate encoding and consider implementing a Content Security Policy.
+                                    </div>
+                                </div>
+                            <h3>Extension Xss (2)</h3>
+                                <div class="finding vulnerable">
+                                    <div class="severity-badge high-severity">HIGH</div>
+                                    <h4>Finding #1</h4>
+                                    <table class="details-table">
+                                    <tr><td>URL</td><td class="url">https://x55.is/brutelogic/xss.php/&quot;&gt;&lt;script&gt;alert(4)&lt;/script&gt;</td></tr>
+                                    <tr><td>Payload</td><td><code class="payload">&quot;&gt;&lt;script&gt;alert(4)&lt;/script&gt;</code></td></tr>
+                                    <tr><td>Location</td><td>after_extension</td></tr>
+                                    <tr><td>Parameter</td><td>N/A</td></tr>
+                                    <tr><td>Status Code</td><td>N/A</td></tr>
+                                    <tr><td>WAF Protection</td><td>None detected</td></tr>
+                                    <tr><td>Response</td><td><pre class="response">N/A</pre></td></tr>
+                                    </table>
+                                    <div class="remediation">
+                                        <h5>Recommended Remediation:</h5>
+                                        Validate file extensions and avoid directly reflecting user input in the response.
+                                    </div>
+                                </div>
+                                <div class="finding vulnerable">
+                                    <div class="severity-badge high-severity">HIGH</div>
+                                    <h4>Finding #2</h4>
+                                    <table class="details-table">
+                                    <tr><td>URL</td><td class="url">https://x55.is/brutelogic/xss.php/&quot;&gt;&lt;iframe src=&quot;javascript:alert(7)&quot;&gt;</td></tr>
+                                    <tr><td>Payload</td><td><code class="payload">&quot;&gt;&lt;iframe src=&quot;javascript:alert(7)&quot;&gt;</code></td></tr>
+                                    <tr><td>Location</td><td>after_extension</td></tr>
+                                    <tr><td>Parameter</td><td>N/A</td></tr>
+                                    <tr><td>Status Code</td><td>N/A</td></tr>
+                                    <tr><td>WAF Protection</td><td>None detected</td></tr>
+                                    <tr><td>Response</td><td><pre class="response">N/A</pre></td></tr>
+                                    </table>
+                                    <div class="remediation">
+                                        <h5>Recommended Remediation:</h5>
+                                        Validate file extensions and avoid directly reflecting user input in the response.
+                                    </div>
+                                </div>
+                            </section>
+
+                            <script>
+                                // Vulnerability Distribution Chart
+                                new Chart(document.getElementById('vulnDistributionChart'), {
+                                    type: 'doughnut',
+                                    data: {
+                                        labels: ['Query', 'Path', 'Extension'],
+                                        datasets: [{
+                                            data: [1, 4, 8],
+                                            backgroundColor: [
+                                                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                                                '#9966FF', '#FF9F40', '#8AC249'
+                                            ]
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        plugins: {
+                                            legend: { position: 'bottom' },
+                                            title: { display: true, text: 'Vulnerability Type Distribution' }
+                                        }
+                                    }
+                                });
+
+                                // Severity Breakdown Chart
+                                new Chart(document.getElementById('severityChart'), {
+                                    type: 'bar',
+                                    data: {
+                                        labels: ['High', 'Medium', 'Low'],
+                                        datasets: [{
+                                            label: 'Vulnerability Severity',
+                                            data: [2, 0, 1],
+                                            backgroundColor: [
+                                                'rgba(255, 99, 132, 0.7)',
+                                                'rgba(255, 206, 86, 0.7)',
+                                                'rgba(75, 192, 192, 0.7)'
+                                            ]
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        scales: {
+                                            y: { beginAtZero: true }
+                                        },
+                                        plugins: {
+                                            title: { display: true, text: 'Vulnerability Severity Distribution' }
+                                        }
+                                    }
+                                });
+                            </script>
+
+                            <footer>
+                                <p>Generated by XSS Scanner</p>
+                                <p>© 2025 All rights reserved.</p>
+                            </footer>
+                        </div>
+                    </body>
+                    </html>
