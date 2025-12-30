@@ -12,14 +12,8 @@ PyQt5-sip>=12.9.0
 # System Utilities
 psutil>=5.8.0
 
-# Date and Time
+# Date and Time utilities
 python-dateutil>=2.8.2
 
-# Concurrent Processing
-futures>=3.1.1; python_version < '3.2'
-
-# Signal Handling
-PyQt5.QtCore>=5.15.4
-
-# Telegram API
+# Optional: Telegram integration (only if actually used)
 python-telegram-bot>=13.15
